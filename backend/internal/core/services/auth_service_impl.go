@@ -5,6 +5,7 @@ import (
 	domain_exceptions "OIDCAuthenticator/internal/core/domain/exceptions"
 	"OIDCAuthenticator/internal/core/dto"
 	ports_authentications "OIDCAuthenticator/internal/core/ports/authentications"
+	ports_caching "OIDCAuthenticator/internal/core/ports/caching"
 	ports_configurations "OIDCAuthenticator/internal/core/ports/configurations"
 	ports_database "OIDCAuthenticator/internal/core/ports/database"
 	ports_repositories "OIDCAuthenticator/internal/core/ports/repositories"
@@ -30,6 +31,7 @@ type authServiceImpl struct {
 	repoRefreshTokenScope     ports_repositories.RefreshTokenScopeRepository
 	repoUserInfo              ports_repositories.UserInformationRepository
 	repoViewRefreshTokenScope ports_repositories.ViewRefreshTokenScopeRepository
+	repoCache                 ports_caching.CacheRepository
 	jwtToken                  ports_authentications.JwtTokenService
 	randomNumberGenerator     ports_authentications.RandomNumberGenerator
 	sha256Hasher              ports_security.Sha256Hasher
@@ -50,6 +52,7 @@ func NewAuthService(
 	repoRefreshTokenScope ports_repositories.RefreshTokenScopeRepository,
 	repoUserInfo ports_repositories.UserInformationRepository,
 	repoViewRefreshTokenScope ports_repositories.ViewRefreshTokenScopeRepository,
+	repoCache ports_caching.CacheRepository,
 	jwtToken ports_authentications.JwtTokenService,
 	randomNumberGenerator ports_authentications.RandomNumberGenerator,
 	sha256Hasher ports_security.Sha256Hasher,
@@ -68,6 +71,7 @@ func NewAuthService(
 		repoRefreshTokenScope:     repoRefreshTokenScope,
 		repoUserInfo:              repoUserInfo,
 		repoViewRefreshTokenScope: repoViewRefreshTokenScope,
+		repoCache:                 repoCache,
 		jwtToken:                  jwtToken,
 		randomNumberGenerator:     randomNumberGenerator,
 		sha256Hasher:              sha256Hasher,
@@ -80,12 +84,60 @@ func (s *authServiceImpl) ValidateGrantType(ctx context.Context, grantType strin
 	return false
 }
 
-func (s *authServiceImpl) CreateAuthorizationCode(ctx context.Context, sessionId uuid.UUID, state dto.AuthState) (string, error) {
+func (s *authServiceImpl) Authorize(ctx context.Context, req dto.AuthorizeRequestDTO, flowID string, sessionID string) (*dto.AuthorizeResult, error) {
+	// 1. Business Validation (กฎของ OAuth)
+	if req.ResponseType != "code" {
+		return nil, domain_exceptions.NewOAuthError("unsupported_response_type", "Invalid response type.")
+	}
+	if req.ClientID == "" {
+		return nil, domain_exceptions.NewOAuthError("client_id_required", "The client is null or empty.")
+	}
+	if req.RedirectURI == "" {
+		return nil, domain_exceptions.NewOAuthError("redirect_uri_required", "The redirect uri is null or empty.")
+	}
+	if req.Scope == "" {
+		return nil, domain_exceptions.NewOAuthError("scope_required", "The scopes is null or empty.")
+	}
+
+	// บันทึกลง Cache (ผ่าน Port Interface)
+	err := s.repoCache.Set(ctx, flowID, req, 15*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	// 2. ตรวจสอบสถานะของธุรกิจ (มี Session ไหม)
+	// ให้ฝั่ง API เป็นคนส่งสถานะมา Usecase จะได้ไม่ยึดติดกับคำว่า Cookie
+	if sessionID == "" {
+		return nil, domain_exceptions.NewUnauthorizedError("session_expired", "Session has expired.")
+	}
+	uuidSessionId, _ := uuid.Parse(sessionID)
+
+	// flowId := strings.ReplaceAll(uuid.New().String(), "-", "")
+
+	// สมมติตรรกะการเจน Code
+	// authCode := "auth_code_" + uuid.New().String()
+
+	authCode, err := s.createAuthorizationCode(
+		ctx,
+		uuidSessionId,
+		req,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// ส่งกลับแค่ข้อมูลดิบๆ ที่ระบบทำงานสำเร็จ
+	return &dto.AuthorizeResult{
+		AuthorizationCode: authCode,
+		RedirectURI:       req.RedirectURI,
+		State:             req.State,
+	}, nil
+}
+
+func (s *authServiceImpl) createAuthorizationCode(ctx context.Context, sessionId uuid.UUID, req dto.AuthorizeRequestDTO) (string, error) {
 
 	filterAuthSession := &domain_entities.AuthSessionFilter{
 		SessionID: &sessionId,
 	}
-
 	storedAuthSession, err := s.repoAuthSession.Get(ctx, filterAuthSession)
 
 	if err != nil || storedAuthSession == nil {
@@ -96,7 +148,7 @@ func (s *authServiceImpl) CreateAuthorizationCode(ctx context.Context, sessionId
 		return "", domain_exceptions.NewUnauthorizedError("", "Session has expired.")
 	}
 
-	clientUUID, err := uuid.Parse(state.ClientID)
+	clientUUID, err := uuid.Parse(req.ClientID)
 	if err != nil {
 		return "", domain_exceptions.NewOAuthError("invalid_client", "Invalid client ID format.")
 	}
@@ -108,11 +160,11 @@ func (s *authServiceImpl) CreateAuthorizationCode(ctx context.Context, sessionId
 		return "", domain_exceptions.NewOAuthError("invalid_client", "Invalid client.")
 	}
 
-	if client.RedirectURI != state.RedirectURI {
+	if client.RedirectURI != req.RedirectURI {
 		return "", domain_exceptions.NewOAuthError("invalid_redirect_uri", "Invalid redirect uri.")
 	}
 
-	requestedScopes := strings.Split(state.Scope, " ")
+	requestedScopes := strings.Split(req.Scope, " ")
 	filterClientScope := &domain_entities.ClientScopeFilter{
 		ClientID: &clientUUID,
 	}
@@ -159,11 +211,11 @@ func (s *authServiceImpl) CreateAuthorizationCode(ctx context.Context, sessionId
 		UserID:          storedAuthSession.UserID,
 		SessionID:       sessionId,
 		ClientID:        clientUUID,
-		CodeChallenge:   state.CodeChallenge,
-		ChallengeMethod: state.CodeChallengeMethod,
+		CodeChallenge:   req.CodeChallenge,
+		ChallengeMethod: req.CodeChallengeMethod,
 		RequiredScopes:  strings.Join(requestedScopes, " "),
-		RedirectURI:     &state.RedirectURI,
-		Nonce:           &state.Nonce,
+		RedirectURI:     &req.RedirectURI,
+		Nonce:           &req.Nonce,
 		ExpiresAt:       time.Now().UTC().Add(time.Duration(expiryMinutes) * time.Minute),
 		ExpiresAtTH:     time.Now().In(loc).Add(time.Duration(expiryMinutes) * time.Minute),
 	}
