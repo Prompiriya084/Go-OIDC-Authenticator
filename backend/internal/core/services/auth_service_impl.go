@@ -26,6 +26,8 @@ type authServiceImpl struct {
 	repoAuthSession           ports_repositories.AuthSessionRepository
 	repoClient                ports_repositories.ClientRepository
 	repoClientScope           ports_repositories.ClientScopeRepository
+	repoClientGrantType       ports_repositories.ClientGrantTypeRepository
+	repoGrantType             ports_repositories.GrantTypeRepository
 	repoScope                 ports_repositories.ScopeRepository
 	repoRefreshToken          ports_repositories.RefreshTokenRepository
 	repoRefreshTokenScope     ports_repositories.RefreshTokenScopeRepository
@@ -47,6 +49,8 @@ func NewAuthService(
 	repoAuthSession ports_repositories.AuthSessionRepository,
 	repoClient ports_repositories.ClientRepository,
 	repoClientScope ports_repositories.ClientScopeRepository,
+	repoClientGrantType ports_repositories.ClientGrantTypeRepository,
+	repoGrantType ports_repositories.GrantTypeRepository,
 	repoScope ports_repositories.ScopeRepository,
 	repoRefreshToken ports_repositories.RefreshTokenRepository,
 	repoRefreshTokenScope ports_repositories.RefreshTokenScopeRepository,
@@ -66,6 +70,8 @@ func NewAuthService(
 		repoAuthSession:           repoAuthSession,
 		repoClient:                repoClient,
 		repoClientScope:           repoClientScope,
+		repoClientGrantType:       repoClientGrantType,
+		repoGrantType:             repoGrantType,
 		repoScope:                 repoScope,
 		repoRefreshToken:          repoRefreshToken,
 		repoRefreshTokenScope:     repoRefreshTokenScope,
@@ -258,7 +264,55 @@ func (s *authServiceImpl) createAuthorizationCode(ctx context.Context, sessionId
 	return authorizationCode, nil
 }
 
-func (s *authServiceImpl) HandleTokenAuthorizationCode(
+func (s *authServiceImpl) HandleToken(ctx context.Context, req dto.TokenRequestDTO) (*dto.TokenResponseDTO, error) {
+	uuidClientID, err := uuid.Parse(req.ClientID)
+	if err != nil {
+		return nil, err
+	}
+	filterClientGrantType := &domain_entities.ClientGrantTypeFilter{
+		ClientID: &uuidClientID,
+	}
+	clientGrantTypes, err := s.repoClientGrantType.GetAll(ctx, filterClientGrantType)
+	if err != nil {
+		return nil, err
+	}
+	if len(clientGrantTypes) == 0 {
+		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Invalid grant type.")
+	}
+	var grantypes []*domain_entities.GrantType
+	for _, grant := range clientGrantTypes {
+		filterGrantType := &domain_entities.GrantTypeFilter{
+			ID: &grant.GrantID,
+		}
+		selectedGrant, err := s.repoGrantType.Get(ctx, filterGrantType)
+		if err != nil {
+			return nil, err
+		}
+
+		if selectedGrant == nil {
+			continue
+		}
+		grantypes = append(grantypes, selectedGrant)
+
+		// if selectedGrant == "offline_access" {
+		// 	hasOfflineAccess = true
+		// 	break
+		// }
+	}
+
+	// hasGrantType := false
+	// for _, grant := range clientGrantTypes {
+	// 	if grant == "offline_access" {
+	// 		hasOfflineAccess = true
+	// 		break
+	// 	}
+	// }
+
+	return nil, nil
+
+}
+
+func (s *authServiceImpl) handleTokenAuthorizationCode(
 	ctx context.Context,
 	authorizationCode string,
 	clientId string,
@@ -393,7 +447,7 @@ func (s *authServiceImpl) HandleTokenAuthorizationCode(
 	return tokenResult, nil
 }
 
-func (s *authServiceImpl) HandleTokenRefreshToken(
+func (s *authServiceImpl) handleTokenRefreshToken(
 	ctx context.Context,
 	refreshToken string,
 	clientId string,
