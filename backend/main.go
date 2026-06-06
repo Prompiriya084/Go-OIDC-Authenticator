@@ -2,6 +2,7 @@ package main
 
 import (
 	adapters_authentications "OIDCAuthenticator/internal/adapters/authentications"
+	adapters_caching "OIDCAuthenticator/internal/adapters/caching"
 	adapters_configurations "OIDCAuthenticator/internal/adapters/configurations"
 	adapters_crypto "OIDCAuthenticator/internal/adapters/crypto"
 	"OIDCAuthenticator/internal/adapters/dataaccess"
@@ -15,7 +16,9 @@ func main() {
 	txManager := dataaccess.NewTransactionManager(db)
 
 	authConfig := adapters_configurations.NewAuthConfiguration()
-
+	//caching
+	cachRepository := adapters_caching.NewCacheRepository()
+	//db repositories
 	audienceRepository := adapters_repositories.NewAudienceRepository(db)
 	authCodeRepository := adapters_repositories.NewAuthCodeRepository(db)
 	authSessionRepository := adapters_repositories.NewAuthSessionRepository(db)
@@ -74,7 +77,7 @@ func main() {
 		refreshTokenScopeRepository,
 		userInformationRepository,
 		viewRefreshScopeRepository,
-		//cacherepo
+		cachRepository,
 		jwtTokenService,
 		randomNumberGenerator,
 		sha256Hasher,
