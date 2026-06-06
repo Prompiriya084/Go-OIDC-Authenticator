@@ -9,6 +9,9 @@ type ClientGrantType struct {
 	ID       int       `gorm:"primaryKey;autoIncrement" json:"id"`
 	ClientID uuid.UUID `gorm:"not null;type:uuid" json:"clientId"`
 	GrantID  uuid.UUID `gorm:"not null;type:uuid" json:"grantId"`
+
+	Grant  GrantType `gorm:"foreignKey:GrantID;references:ID" json:"grant,omitempty"`
+	Client Client    `gorm:"foreignKey:ClientID;references:ID" json:"client,omitempty"`
 }
 
 func (ClientGrantType) TableName() string {
@@ -17,6 +20,6 @@ func (ClientGrantType) TableName() string {
 
 type ClientGrantTypeFilter struct {
 	ID       *int
-	ClientID *uuid.UUID
-	GrantID  *uuid.UUID
+	ClientID *uuid.UUID `gorm:"column:client_id"`
+	GrantID  *uuid.UUID `gorm:"column:grant_id"`
 }

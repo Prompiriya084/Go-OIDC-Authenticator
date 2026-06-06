@@ -16,20 +16,28 @@ import (
 )
 
 type HttpAuthHandler struct {
+	r            *gin.Engine
 	service      services.AuthService
 	config       ports_configurations.AuthConfiguration
 	frontendHost string // เก็บไว้ที่ตัว Handler เพราะเป็นเรื่องของ URL หน้าบ้าน (Web Routing)
 }
 
-func NewHttpAuthHandler(r *gin.Engine, service services.AuthService, config ports_configurations.AuthConfiguration, frontendHost string) {
-	handler := &HttpAuthHandler{
+func NewHttpAuthHandler(r *gin.Engine, service services.AuthService, config ports_configurations.AuthConfiguration, frontendHost string) *HttpAuthHandler {
+	return &HttpAuthHandler{
+		r:            r,
 		service:      service,
 		config:       config,
 		frontendHost: frontendHost,
 	}
+}
 
-	r.GET("/auth/authorize", handler.Authorize)
-	r.POST("/auth/token", handler.Token)
+// ฟังก์ชันสำหรับผูก Route ของโมดูล Auth เข้ากับ Group ที่ส่งเข้ามา
+func (h *HttpAuthHandler) RegisterRoutes() {
+	authGroup := h.r.RouterGroup.Group("/auth")
+	{
+		authGroup.GET("/authorize", h.Authorize)
+		authGroup.POST("/token", h.Token)
+	}
 }
 
 func (h *HttpAuthHandler) Authorize(c *gin.Context) {
@@ -101,7 +109,7 @@ func (h *HttpAuthHandler) Token(c *gin.Context) {
 		return
 	}
 
-	// API Layer แกะสลัก Basic Authentication Header (ย้ายมาจาก Usecase แล้ว)
+	// API Layer แกะ Basic Authentication Header
 	if clientId, clientSecret, ok := h.parseBasicAuth(c.GetHeader("Authorization")); ok {
 		req.ClientID = clientId
 		req.ClientSecret = clientSecret

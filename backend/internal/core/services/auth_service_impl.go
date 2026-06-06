@@ -120,7 +120,6 @@ func (s *authServiceImpl) Authorize(ctx context.Context, req dto.AuthorizeReques
 	// flowId := strings.ReplaceAll(uuid.New().String(), "-", "")
 
 	// สมมติตรรกะการเจน Code
-	// authCode := "auth_code_" + uuid.New().String()
 
 	authCode, err := s.createAuthorizationCode(
 		ctx,
@@ -269,45 +268,29 @@ func (s *authServiceImpl) HandleToken(ctx context.Context, req dto.TokenRequestD
 	if err != nil {
 		return nil, err
 	}
-	filterClientGrantType := &domain_entities.ClientGrantTypeFilter{
+	filterClientGrant := &domain_entities.ClientGrantTypeFilter{
 		ClientID: &uuidClientID,
 	}
-	clientGrantTypes, err := s.repoClientGrantType.GetAll(ctx, filterClientGrantType)
+	clientGrants, err := s.repoClientGrantType.GetAllWithMaster(ctx, filterClientGrant)
 	if err != nil {
 		return nil, err
 	}
-	if len(clientGrantTypes) == 0 {
+	if len(clientGrants) == 0 {
+		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Invalid grant type.")
+	}
+	//validate grant type
+	IsValidGrant := false
+	for _, cg := range clientGrants {
+		if cg.Grant.Type == req.GrantType {
+			IsValidGrant = true
+			break
+		}
+	}
+
+	if !IsValidGrant {
 		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Invalid grant type.")
 	}
 
-	var grantypes []*domain_entities.GrantType
-	for _, grant := range clientGrantTypes {
-		filterGrantType := &domain_entities.GrantTypeFilter{
-			ID: &grant.GrantID,
-		}
-		selectedGrant, err := s.repoGrantType.Get(ctx, filterGrantType)
-		if err != nil {
-			return nil, err
-		}
-
-		if selectedGrant == nil {
-			continue
-		}
-		grantypes = append(grantypes, selectedGrant)
-
-		// if selectedGrant == "offline_access" {
-		// 	hasOfflineAccess = true
-		// 	break
-		// }
-	}
-
-	// hasGrantType := false
-	// for _, grant := range clientGrantTypes {
-	// 	if grant == "offline_access" {
-	// 		hasOfflineAccess = true
-	// 		break
-	// 	}
-	// }
 	var tokenResult *dto.TokenResult
 	var refreshTokenStr string
 	if req.RefreshToken != nil {

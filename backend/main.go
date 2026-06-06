@@ -6,13 +6,18 @@ import (
 	adapters_configurations "OIDCAuthenticator/internal/adapters/configurations"
 	adapters_crypto "OIDCAuthenticator/internal/adapters/crypto"
 	"OIDCAuthenticator/internal/adapters/dataaccess"
+	adapters_http_handlers "OIDCAuthenticator/internal/adapters/http"
 	adapters_repositories "OIDCAuthenticator/internal/adapters/repositories"
 	adapters_security "OIDCAuthenticator/internal/adapters/security"
 	"OIDCAuthenticator/internal/core/services"
+	"os"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
 	db := dataaccess.InitDB()
+	r := gin.Default()
 	txManager := dataaccess.NewTransactionManager(db)
 
 	authConfig := adapters_configurations.NewAuthConfiguration()
@@ -95,5 +100,16 @@ func main() {
 		encryptionService,
 		sha256Hasher,
 	)
+
+	//http handlers
+	authHandler := adapters_http_handlers.NewHttpAuthHandler(
+		r,
+		authService,
+		authConfig,
+		os.Getenv("Frontend_Host"),
+	)
+
+	//register routes
+	authHandler.RegisterRoutes()
 
 }
