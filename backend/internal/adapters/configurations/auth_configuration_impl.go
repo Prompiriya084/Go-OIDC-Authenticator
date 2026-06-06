@@ -18,6 +18,7 @@ type authConfigurationImpl struct {
 	AuthSessionName              string
 	AuthSessionExpiryInMinutes   int
 	AuthCodeExpiryInMinutes      int
+	TokenExpiryInMinutes         int
 	TotpEncryptionKey            string
 }
 
@@ -30,6 +31,7 @@ func NewAuthConfiguration() ports_configurations.AuthConfiguration {
 	mfaSessionExpiryInMinutes, _ := strconv.Atoi(os.Getenv("Auth_mfa_session_expiry_minutes"))
 	authSessionExpiryInMinutes, _ := strconv.Atoi(os.Getenv("Auth_auth_session_expiry_minutes"))
 	authCodeExpiryInMinutes, _ := strconv.Atoi(os.Getenv("Auth_auth_code_expiry_minutes"))
+	tokenExpiryInMinutes, _ := strconv.Atoi(os.Getenv("Auth_auth_token_expiry_minutes"))
 	return &authConfigurationImpl{
 		TokenIssuer:                  os.Getenv("Auth_token_issuer"),
 		PreMfaSessionName:            os.Getenv("Auth_pre_mfa_session_name"),
@@ -39,6 +41,7 @@ func NewAuthConfiguration() ports_configurations.AuthConfiguration {
 		AuthSessionName:              os.Getenv("Auth_auth_session_name"),
 		AuthSessionExpiryInMinutes:   authSessionExpiryInMinutes,
 		AuthCodeExpiryInMinutes:      authCodeExpiryInMinutes,
+		TokenExpiryInMinutes:         tokenExpiryInMinutes,
 		TotpEncryptionKey:            os.Getenv("TOTP_EncryptionKey"),
 	}
 }
@@ -66,6 +69,9 @@ func (c *authConfigurationImpl) GetAuthSessionExpiryInMinutes() int {
 }
 func (c *authConfigurationImpl) GetAuthCodeExpiryInMinutes() int {
 	return c.AuthCodeExpiryInMinutes
+}
+func (c *authConfigurationImpl) GetTokenExpiryInMinutes() int {
+	return c.TokenExpiryInMinutes
 }
 func (c *authConfigurationImpl) GetTotpEncryptionKey() string {
 	return c.TotpEncryptionKey

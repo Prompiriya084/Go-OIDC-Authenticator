@@ -279,6 +279,7 @@ func (s *authServiceImpl) HandleToken(ctx context.Context, req dto.TokenRequestD
 	if len(clientGrantTypes) == 0 {
 		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Invalid grant type.")
 	}
+
 	var grantypes []*domain_entities.GrantType
 	for _, grant := range clientGrantTypes {
 		filterGrantType := &domain_entities.GrantTypeFilter{
@@ -307,8 +308,42 @@ func (s *authServiceImpl) HandleToken(ctx context.Context, req dto.TokenRequestD
 	// 		break
 	// 	}
 	// }
+	var tokenResult *dto.TokenResult
+	var refreshTokenStr string
+	if req.RefreshToken != nil {
+		// 2. Dereference the pointer to get the actual normal string value
+		refreshTokenStr = *req.RefreshToken
+	}
+	switch req.GrantType {
+	case "authorization_code":
+		tokenResult, err = s.handleTokenAuthorizationCode(
+			ctx,
+			req.Code,
+			req.ClientID,
+			&req.ClientSecret,
+			req.RedirectURI,
+			req.CodeVerifier,
+		)
+	case "refresh_token":
+		tokenResult, err = s.handleTokenRefreshToken(
+			ctx,
+			refreshTokenStr,
+			req.ClientID,
+			&req.ClientSecret,
+		)
 
-	return nil, nil
+	default:
+		return nil, domain_exceptions.NewOAuthError("invalid_grant", "unsupported grant type")
+	}
+
+	return &dto.TokenResponseDTO{
+		IDToken:      tokenResult.IdToken,
+		RefreshToken: tokenResult.RefreshToken,
+		AccessToken:  tokenResult.AccessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    s.authConfig.GetTokenExpiryInMinutes() * 60,
+	}, nil
+	// return nil, nil
 
 }
 

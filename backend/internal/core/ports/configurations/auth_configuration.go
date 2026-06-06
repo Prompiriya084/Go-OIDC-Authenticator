@@ -10,4 +10,5 @@ type AuthConfiguration interface {
 	GetAuthSessionExpiryInMinutes() int
 	GetAuthCodeExpiryInMinutes() int
 	GetTotpEncryptionKey() string
+	GetTokenExpiryInMinutes() int
 }
