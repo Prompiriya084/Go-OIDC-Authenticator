@@ -1,28 +1,37 @@
+# ==============================================================================
+# BACKEND (Go Artifacts)
+# ==============================================================================
+
 # Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
 
-# Compiled binary output (when running 'go build' without naming)
-/main
-/[A-Za-z0-9_-]
+# Compiled binary output
+backend/main
+backend/[A-Za-z0-9_-]
 
-# Test binaries built with `go test -c`
-*.test
+# Test binaries built with 'go test -c'
+backend/*.test
 
 # Output of the go coverage tool
-*.out
-*.prof
+backend/*.out
+backend/*.prof
 
-# Dependency directories
-# (Uncomment if you want to explicitly ignore vendored dependencies)
-# vendor/
+# Dependency directories (Uncomment if using vendoring)
+# backend/vendor/
 
-# Environment configuration files containing secrets
-.env
-.env.local
 
-#others
+# ==============================================================================
+# SECRETS & ENVIRONMENT CONFIG
+# ==============================================================================
+backend/.env
+backend/.env.local
+
+
+# ==============================================================================
+# SYSTEM & MISC
+# ==============================================================================
 .DS_Store
