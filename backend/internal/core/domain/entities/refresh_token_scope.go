@@ -9,6 +9,9 @@ type RefreshTokenScope struct {
 	ID      int       `gorm:"primaryKey;autoIncrement" json:"id"`
 	TokenID uuid.UUID `gorm:"not null;type:uuid" json:"tokenId"`
 	ScopeID uuid.UUID `gorm:"not null;type:uuid" json:"scopeId"`
+
+	Token RefreshToken `gorm:"foreignKey:TokenID;references:ID" json:"token,omitempty"`
+	Scope Scope        `gorm:"foreignKey:ScopeID;references:ID" json:"scope,omitempty"`
 }
 
 func (RefreshTokenScope) TableName() string {
