@@ -1,0 +1,28 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Compiled binary output (when running 'go build' without naming)
+/main
+/[A-Za-z0-9_-]
+
+# Test binaries built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+*.prof
+
+# Dependency directories
+# (Uncomment if you want to explicitly ignore vendored dependencies)
+# vendor/
+
+# Environment configuration files containing secrets
+.env
+.env.local
+
+#others
+.DS_Store
