@@ -120,3 +120,49 @@ func (s *jwtTokenServiceImpl) CreateAccessToken(
 
 	return tokenString, nil
 }
+
+func (s *jwtTokenServiceImpl) CreatePreMfaToken(userID string) (string, error) {
+	expiryDateUTC := time.Now().UTC().Add(time.Duration(s.config.GetPreMfaSessionExpiryInMinutes()) * time.Minute)
+	claims := jwt.MapClaims{
+		"sub":        userID,
+		"auth_stage": "pre-mfa",
+		"iss":        s.config.GetTokenIssuer(),
+		"exp":        jwt.NewNumericDate(expiryDateUTC),
+		"iat":        jwt.NewNumericDate(time.Now().UTC()),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	secretKey := []byte(s.config.GetJwtSecret())
+
+	tokenString, err := token.SignedString(secretKey)
+	if err != nil {
+		return "", err
+	}
+
+	return tokenString, nil
+
+}
+func (s *jwtTokenServiceImpl) CreateMfaToken(
+	userID string,
+) (string, error) {
+	expiryDateUTC := time.Now().UTC().Add(time.Duration(s.config.GetMfaSessionExpiryInMinutes()) * time.Minute)
+	claims := jwt.MapClaims{
+		"sub":        userID,
+		"auth_stage": "mfa",
+		"iss":        s.config.GetTokenIssuer(),
+		"exp":        jwt.NewNumericDate(expiryDateUTC),
+		"iat":        jwt.NewNumericDate(time.Now().UTC()),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	secretKey := []byte(s.config.GetJwtSecret())
+
+	tokenString, err := token.SignedString(secretKey)
+	if err != nil {
+		return "", err
+	}
+
+	return tokenString, nil
+}

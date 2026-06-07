@@ -20,6 +20,7 @@ type authConfigurationImpl struct {
 	AuthCodeExpiryInMinutes      int
 	TokenExpiryInMinutes         int
 	TotpEncryptionKey            string
+	JwtSecret                    string
 }
 
 func NewAuthConfiguration() ports_configurations.AuthConfiguration {
@@ -43,6 +44,7 @@ func NewAuthConfiguration() ports_configurations.AuthConfiguration {
 		AuthCodeExpiryInMinutes:      authCodeExpiryInMinutes,
 		TokenExpiryInMinutes:         tokenExpiryInMinutes,
 		TotpEncryptionKey:            os.Getenv("TOTP_EncryptionKey"),
+		JwtSecret:                    os.Getenv("Jwt_Secret"),
 	}
 }
 func (c *authConfigurationImpl) GetTokenIssuer() string {
@@ -75,4 +77,7 @@ func (c *authConfigurationImpl) GetTokenExpiryInMinutes() int {
 }
 func (c *authConfigurationImpl) GetTotpEncryptionKey() string {
 	return c.TotpEncryptionKey
+}
+func (c *authConfigurationImpl) GetJwtSecret() string {
+	return c.JwtSecret
 }

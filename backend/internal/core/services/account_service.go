@@ -1,16 +1,12 @@
 package services
 
 import (
+	"OIDCAuthenticator/internal/core/dto"
 	"context"
-
-	"github.com/google/uuid"
 )
 
-type SignInResponseDTO struct {
-	UserId      uuid.UUID `json:"userId"`
-	RequireTotp bool      `json:"requireTotp"`
-}
-
 type AccountService interface {
-	SignIn(ctx context.Context, username string, password string) (*SignInResponseDTO, error)
+	SignIn(ctx context.Context, req dto.SignInRequestDTO) (*dto.SignInResponseDTO, error)
+	GeneratePreMfaToken(userID string) (string, error)
+	GenerateMfaToken(userID string) (string, error)
 }

@@ -23,4 +23,6 @@ type JwtTokenService interface {
 		scopes []string,
 		expiryDateUtc time.Time,
 	) (string, error)
+	CreatePreMfaToken(userID string) (string, error)
+	CreateMfaToken(userID string) (string, error)
 }

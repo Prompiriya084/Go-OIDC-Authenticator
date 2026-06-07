@@ -11,4 +11,5 @@ type AuthConfiguration interface {
 	GetAuthCodeExpiryInMinutes() int
 	GetTotpEncryptionKey() string
 	GetTokenExpiryInMinutes() int
+	GetJwtSecret() string
 }

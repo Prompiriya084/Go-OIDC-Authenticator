@@ -66,6 +66,7 @@ func main() {
 		userAuthenRepository,
 		userMfaRepository,
 		passwordHasher,
+		jwtTokenService,
 	)
 	authService := services.NewAuthService(
 		authConfig,
@@ -108,8 +109,14 @@ func main() {
 		authConfig,
 		os.Getenv("Frontend_Host"),
 	)
+	accountHandler := adapters_http_handlers.NewAccountHandler(
+		r,
+		accountService,
+		authConfig,
+	)
 
 	//register routes
 	authHandler.RegisterRoutes()
+	accountHandler.RegisterRoutes()
 
 }
