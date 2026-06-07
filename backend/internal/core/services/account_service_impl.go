@@ -3,6 +3,8 @@ package services
 import (
 	domain_entities "OIDCAuthenticator/internal/core/domain/entities"
 	domain_exceptions "OIDCAuthenticator/internal/core/domain/exceptions"
+	"OIDCAuthenticator/internal/core/dto"
+	ports_authentications "OIDCAuthenticator/internal/core/ports/authentications"
 	ports_database "OIDCAuthenticator/internal/core/ports/database"
 	ports_repositories "OIDCAuthenticator/internal/core/ports/repositories"
 	ports_security "OIDCAuthenticator/internal/core/ports/security"
@@ -11,10 +13,11 @@ import (
 )
 
 type accountServiceImpl struct {
-	txManager      ports_database.TransactionManager
-	repoUserAuthen ports_repositories.UserAuthenRepository
-	repoUserMfa    ports_repositories.UserMfaRepository
-	passwordHasher ports_security.PasswordHasher
+	txManager       ports_database.TransactionManager
+	repoUserAuthen  ports_repositories.UserAuthenRepository
+	repoUserMfa     ports_repositories.UserMfaRepository
+	passwordHasher  ports_security.PasswordHasher
+	jwtTokenService ports_authentications.JwtTokenService
 }
 
 func NewAccountService(
@@ -22,18 +25,20 @@ func NewAccountService(
 	repoUserAuthen ports_repositories.UserAuthenRepository,
 	repoUserMfa ports_repositories.UserMfaRepository,
 	passwordHasher ports_security.PasswordHasher,
+	jwtTokenService ports_authentications.JwtTokenService,
 ) *accountServiceImpl {
 	return &accountServiceImpl{
-		txManager:      txManager,
-		repoUserAuthen: repoUserAuthen,
-		repoUserMfa:    repoUserMfa,
-		passwordHasher: passwordHasher,
+		txManager:       txManager,
+		repoUserAuthen:  repoUserAuthen,
+		repoUserMfa:     repoUserMfa,
+		passwordHasher:  passwordHasher,
+		jwtTokenService: jwtTokenService,
 	}
 }
 
-func (s *accountServiceImpl) SignIn(ctx context.Context, username string, password string) (*SignInResponseDTO, error) {
+func (s *accountServiceImpl) SignIn(ctx context.Context, req dto.SignInRequestDTO) (*dto.SignInResponseDTO, error) {
 	filterUserAuthen := &domain_entities.UserAuthenFilter{
-		Username: &username,
+		Username: &req.Username,
 	}
 	existingUser, err := s.repoUserAuthen.Get(ctx, filterUserAuthen)
 	if err != nil {
@@ -42,7 +47,7 @@ func (s *accountServiceImpl) SignIn(ctx context.Context, username string, passwo
 	if existingUser == nil {
 		return nil, domain_exceptions.NewUnauthorizedError("", "The account not found")
 	}
-	isPasswordCorrect := s.passwordHasher.Verify(existingUser.PasswordHash, password)
+	isPasswordCorrect := s.passwordHasher.Verify(existingUser.PasswordHash, req.Password)
 	if !isPasswordCorrect {
 		return nil, domain_exceptions.NewUnauthorizedError("", "The username or password is incorrect.")
 	}
@@ -110,8 +115,14 @@ func (s *accountServiceImpl) SignIn(ctx context.Context, username string, passwo
 	}
 
 	// 8. ประกอบผลลัพธ์ส่งกลับ (ใช้ข้อมูลจากทั่งสองตารางที่ดึงมา)
-	return &SignInResponseDTO{
-		UserId:      existingUser.ID,
+	return &dto.SignInResponseDTO{
+		UserID:      existingUser.ID,
 		RequireTotp: userMfa.TotpEnabled,
 	}, nil
+}
+func (s *accountServiceImpl) GeneratePreMfaToken(userID string) (string, error) {
+	return s.jwtTokenService.CreatePreMfaToken(userID)
+}
+func (s *accountServiceImpl) GenerateMfaToken(userID string) (string, error) {
+	return s.jwtTokenService.CreateMfaToken(userID)
 }
