@@ -120,18 +120,15 @@ func main() {
 
 	//http handlers
 	authHandler := adapters_http_handlers.NewHttpAuthHandler(
-		r,
 		authService,
 		authConfig,
 		os.Getenv("Frontend_Host"),
 	)
 	accountHandler := adapters_http_handlers.NewAccountHandler(
-		r,
 		accountService,
 		authConfig,
 	)
 	mfaHandler := adapters_http_handlers.NewHttpMfaHandler(
-		r,
 		mfaService,
 		authMiddleware,
 		authConfig.GetAuthSessionName(),
@@ -139,9 +136,9 @@ func main() {
 	)
 
 	//register routes
-	authHandler.RegisterRoutes()
-	accountHandler.RegisterRoutes()
-	mfaHandler.RegisterRoutes()
+	authHandler.RegisterRoutes(r)
+	accountHandler.RegisterRoutes(r)
+	mfaHandler.RegisterRoutes(r)
 
 	r.Run(":8080")
 

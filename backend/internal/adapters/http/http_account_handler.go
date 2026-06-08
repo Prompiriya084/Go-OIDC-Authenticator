@@ -13,7 +13,6 @@ import (
 
 // AccountHandler ทำหน้าที่เสมือน AccountController
 type HttpAccountHandler struct {
-	r          *gin.Engine
 	service    services.AccountService
 	authConfig ports_configurations.AuthConfiguration
 	// เพิ่มตัวแปรอื่นๆ เช่น cache, env หากจำเป็นต้องใช้งานในระดับ HTTP
@@ -21,20 +20,18 @@ type HttpAccountHandler struct {
 
 // NewAccountHandler เป็น Constructor สำหรับสร้าง Handler
 func NewAccountHandler(
-	r *gin.Engine,
 	service services.AccountService,
 	authConfig ports_configurations.AuthConfiguration,
 ) *HttpAccountHandler {
 	return &HttpAccountHandler{
-		r:          r,
 		service:    service,
 		authConfig: authConfig,
 	}
 }
 
 // ฟังก์ชันสำหรับผูก Route ของโมดูล Auth เข้ากับ Group ที่ส่งเข้ามา
-func (h *HttpAccountHandler) RegisterRoutes() {
-	accountGroup := h.r.RouterGroup.Group("/account")
+func (h *HttpAccountHandler) RegisterRoutes(router *gin.Engine) {
+	accountGroup := router.Group("/account")
 	{
 		accountGroup.POST("/signin", h.SignIn)
 	}
