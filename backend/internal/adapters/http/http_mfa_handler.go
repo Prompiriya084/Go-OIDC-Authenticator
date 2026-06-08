@@ -15,7 +15,6 @@ import (
 )
 
 type HttpMfaHandler struct {
-	r               *gin.Engine
 	service         services.MfaService
 	authMiddleware  *middleware.AuthMiddleware
 	cookieName      string
@@ -24,14 +23,12 @@ type HttpMfaHandler struct {
 
 // อัปเดต Constructor ให้รับตัวแปรน้อยลง เพราะตัดเรื่องชื่อคุกกี้ MFA ชั่วคราวออกไปแล้ว (เปลี่ยนไปใช้ JWT)
 func NewHttpMfaHandler(
-	r *gin.Engine,
 	service services.MfaService,
 	authMiddleware *middleware.AuthMiddleware, // 🚀 ฉีด Middleware ที่คุณสร้างเข้ามาร่วมงานด้วย
 	cookieName string,
 	cookieExpiryMin int,
 ) *HttpMfaHandler {
 	return &HttpMfaHandler{
-		r:               r,
 		service:         service,
 		authMiddleware:  authMiddleware,
 		cookieName:      cookieName,
@@ -39,9 +36,9 @@ func NewHttpMfaHandler(
 	}
 
 }
-func (h *HttpMfaHandler) RegisterRoutes() {
+func (h *HttpMfaHandler) RegisterRoutes(router *gin.Engine) {
 	// สร้างกลุ่ม API สำหรับ MFA
-	mfaGroup := h.r.Group("/api/mfa")
+	mfaGroup := router.Group("/api/mfa")
 	{
 		// 🔒 เคสที่ 1: หน้า Setup และ Confirm ต้องผ่านด่าน "pre-mfa" เท่านั้น
 		preMfaRoutes := mfaGroup.Group("")

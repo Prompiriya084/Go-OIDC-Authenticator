@@ -134,23 +134,25 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 ) (string, error) {
 
 	// 1. เปิดสวิตช์เริ่มระบบ Transaction 🚨
-	s.txManager.Begin(ctx)
-
+	txCtx, err := s.txManager.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
 	// 2. ใช้ไม้ตาย "defer" คุมพฤติกรรมกู้ชีพและ Rollback ทันทีที่ฟังก์ชันเกิดพังหรือหลุดกลางคัน
 	var funcErr error
 	defer func() {
 		if r := recover(); r != nil {
-			s.txManager.Rollback(ctx)
+			s.txManager.Rollback(txCtx)
 			panic(r) // ปล่อย panic ต่อเพื่อให้ระบบเลเยอร์บนรับรู้
 		}
 		if funcErr != nil {
-			s.txManager.Rollback(ctx)
+			s.txManager.Rollback(txCtx)
 		}
 	}()
 
 	// 🟢 [STEP 1] ดึงข้อมูลและตรวจสอบโปรไฟล์ MFA
 	filter := &domain_entities.UserMfaFilter{ID: &userId}
-	userMfa, funcErr := s.repoUserMfa.Get(ctx, filter)
+	userMfa, funcErr := s.repoUserMfa.Get(txCtx, filter)
 	if funcErr != nil {
 		return "", funcErr
 	}
@@ -174,7 +176,7 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 	// 🟢 [STEP 3] ล้างเซสชันเก่าทิ้งในโหมดปกติ (Verify Mode)
 	if !isConfirmationMode {
 		sessionFilter := &domain_entities.AuthSessionFilter{UserID: &userId}
-		oldSessions, err := s.repoAuthSession.GetAll(ctx, sessionFilter)
+		oldSessions, err := s.repoAuthSession.GetAll(txCtx, sessionFilter)
 		if err != nil {
 			funcErr = err
 			return "", funcErr
@@ -182,7 +184,7 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 
 		// ใช้ความสามารถเลน len เช็กค่าแบบสไตล์ Go ที่เราสรุปกันไปรอบก่อน 🚀
 		if len(oldSessions) > 0 {
-			if err := s.repoAuthSession.DeleteRange(ctx, oldSessions); err != nil {
+			if err := s.repoAuthSession.DeleteRange(txCtx, oldSessions); err != nil {
 				funcErr = err
 				return "", funcErr
 			}
@@ -220,16 +222,16 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 	}
 
 	// 🟢 [STEP 6] สั่งบันทึกผ่าน Unit of Work ค้างเอาไว้ในขวดโหลชั่วคราว
-	if err := s.repoUserMfa.Update(ctx, userMfa); err != nil {
+	if err := s.repoUserMfa.Update(txCtx, userMfa); err != nil {
 		return "", err
 	}
 
-	if err := s.repoAuthSession.Add(ctx, newAuth); err != nil {
+	if err := s.repoAuthSession.Add(txCtx, newAuth); err != nil {
 		return "", err
 	}
 
 	// 🚀 [FINAL STEP] ผ่านฉลุยทุกด่าน สั่งจารึกข้อตกลงลงดิสก์จริงพร้อมกันทีเดียว!
-	if err := s.txManager.Commit(ctx); err != nil {
+	if err := s.txManager.Commit(txCtx); err != nil {
 		funcErr = err
 		return "", funcErr
 	}

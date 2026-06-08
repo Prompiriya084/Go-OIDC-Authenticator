@@ -20,7 +20,7 @@ type JwtTokenService interface {
 		userId string,
 		clientId string,
 		audiences []string,
-		scopes []string,
+		scopeNames []string,
 		expiryDateUtc time.Time,
 	) (string, error)
 	CreatePreMfaToken(userID string) (string, error)

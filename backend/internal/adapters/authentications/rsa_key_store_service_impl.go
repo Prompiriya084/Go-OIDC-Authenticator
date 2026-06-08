@@ -2,6 +2,7 @@ package adapters_authentications
 
 import (
 	domain_entities "OIDCAuthenticator/internal/core/domain/entities"
+	"OIDCAuthenticator/internal/core/dto"
 	ports_authentications "OIDCAuthenticator/internal/core/ports/authentications"
 	ports_database "OIDCAuthenticator/internal/core/ports/database"
 	ports_repositories "OIDCAuthenticator/internal/core/ports/repositories"
@@ -24,7 +25,10 @@ func NewRsaKeyStoreService(
 	txManager ports_database.TransactionManager,
 	repo ports_repositories.SigningKeyRepository,
 ) ports_authentications.RsaKeyStoreService {
-	return &rsaKeyStoreServiceImpl{repo: repo}
+	return &rsaKeyStoreServiceImpl{
+		txManager: txManager,
+		repo:      repo,
+	}
 }
 
 // GetActiveKey ดึงค่า Active Private Key ออกมาใช้ Sign Token
@@ -63,13 +67,13 @@ func (s *rsaKeyStoreServiceImpl) GetActiveKey(ctx context.Context) (string, *rsa
 }
 
 // GetPublicKeys ดึง Public Keys ทั้งหมดส่งออกไป (มักใช้ทำ JWKS endpoint)
-func (s *rsaKeyStoreServiceImpl) GetPublicKeys(ctx context.Context) ([]ports_authentications.KeyResult, error) {
+func (s *rsaKeyStoreServiceImpl) GetPublicKeys(ctx context.Context) ([]dto.RsaKeyResult, error) {
 	keys, err := s.repo.GetAllKeys(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var results []ports_authentications.KeyResult
+	var results []dto.RsaKeyResult
 	for _, x := range keys {
 		pubKeyBytes, err := base64.StdEncoding.DecodeString(x.PublicKey)
 		if err != nil {
@@ -91,7 +95,7 @@ func (s *rsaKeyStoreServiceImpl) GetPublicKeys(ctx context.Context) ([]ports_aut
 			}
 		}
 
-		results = append(results, ports_authentications.KeyResult{
+		results = append(results, dto.RsaKeyResult{
 			Kid: x.Kid,
 			Key: rsaPubKey,
 		})

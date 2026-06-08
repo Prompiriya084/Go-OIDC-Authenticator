@@ -81,7 +81,7 @@ func (s *jwtTokenServiceImpl) CreateAccessToken(
 	userId string,
 	clientId string,
 	audiences []string,
-	scopes []string,
+	scopeNames []string,
 	expiryDateUtc time.Time,
 ) (string, error) {
 
@@ -106,8 +106,8 @@ func (s *jwtTokenServiceImpl) CreateAccessToken(
 	}
 
 	// จัดการเรื่อง Scopes
-	if len(scopes) > 0 {
-		claims["scope"] = scopes
+	if len(scopeNames) > 0 {
+		claims["scope"] = scopeNames
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)

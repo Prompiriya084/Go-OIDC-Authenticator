@@ -58,18 +58,21 @@ func (s *accountServiceImpl) SignIn(ctx context.Context, req dto.SignInRequestDT
 	dateNow := time.Now()
 	dateUtcNow := time.Now().UTC()
 
-	s.txManager.Begin(ctx)
+	txCtx, err := s.txManager.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// 💡 แปะป้ายป้องกันระบบระเบิดไว้ตรงนี้เลย
 	defer func() {
 		if r := recover(); r != nil {
 			// ✨ ถ้าเกิด panic กลางคัน โค้ดจะกระโดดมาทำตรงนี้ชัวร์ๆ!
-			s.txManager.Rollback(ctx)
+			s.txManager.Rollback(txCtx)
 			panic(r) // พ่น panic ต่อเพื่อให้ระบบรู้ว่าแอปพัง
 		}
 		// เคสที่ 2: ฟังก์ชันนี้จบลงโดยการรีเทิร์น err != nil (ไม่ว่าจะพังจากจุดไหนในฟังก์ชัน)
 		if err != nil {
-			s.txManager.Rollback(ctx)
+			s.txManager.Rollback(txCtx)
 		}
 	}()
 	// 5. ตรวจสอบวันหมดอายุ (ถ้าเกิน 60 วันนับจากการล็อกอินล่าสุด)
@@ -77,11 +80,11 @@ func (s *accountServiceImpl) SignIn(ctx context.Context, req dto.SignInRequestDT
 		existingUser.IsActive = false
 
 		// อัปเดตสถานะใน DB ทันทีแบบสะท้อนกลับ (Mutation)
-		if err := s.repoUserAuthen.Update(ctx, existingUser); err != nil {
+		if err := s.repoUserAuthen.Update(txCtx, existingUser); err != nil {
 			return nil, err
 		}
 
-		if err := s.txManager.Commit(ctx); err != nil {
+		if err := s.txManager.Commit(txCtx); err != nil {
 			return nil, err
 		}
 
@@ -93,7 +96,7 @@ func (s *accountServiceImpl) SignIn(ctx context.Context, req dto.SignInRequestDT
 	filterUserMfa := &domain_entities.UserMfaFilter{
 		ID: &existingUser.ID,
 	}
-	userMfa, err := s.repoUserMfa.Get(ctx, filterUserMfa)
+	userMfa, err := s.repoUserMfa.Get(txCtx, filterUserMfa)
 	if err != nil {
 		return nil, err
 	}
@@ -106,11 +109,11 @@ func (s *accountServiceImpl) SignIn(ctx context.Context, req dto.SignInRequestDT
 	existingUser.ExpiresAtTH = dateNow.AddDate(0, 0, 60)
 
 	// บันทึกเวลาล็อกอินใหม่ลง DB
-	err = s.repoUserAuthen.Update(ctx, existingUser)
+	err = s.repoUserAuthen.Update(txCtx, existingUser)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.txManager.Commit(ctx); err != nil {
+	if err := s.txManager.Commit(txCtx); err != nil {
 		return nil, err
 	}
 

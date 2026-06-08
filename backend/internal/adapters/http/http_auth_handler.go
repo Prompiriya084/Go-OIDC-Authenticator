@@ -16,15 +16,13 @@ import (
 )
 
 type HttpAuthHandler struct {
-	r            *gin.Engine
 	service      services.AuthService
 	config       ports_configurations.AuthConfiguration
 	frontendHost string // เก็บไว้ที่ตัว Handler เพราะเป็นเรื่องของ URL หน้าบ้าน (Web Routing)
 }
 
-func NewHttpAuthHandler(r *gin.Engine, service services.AuthService, config ports_configurations.AuthConfiguration, frontendHost string) *HttpAuthHandler {
+func NewHttpAuthHandler(service services.AuthService, config ports_configurations.AuthConfiguration, frontendHost string) *HttpAuthHandler {
 	return &HttpAuthHandler{
-		r:            r,
 		service:      service,
 		config:       config,
 		frontendHost: frontendHost,
@@ -32,8 +30,8 @@ func NewHttpAuthHandler(r *gin.Engine, service services.AuthService, config port
 }
 
 // ฟังก์ชันสำหรับผูก Route ของโมดูล Auth เข้ากับ Group ที่ส่งเข้ามา
-func (h *HttpAuthHandler) RegisterRoutes() {
-	authGroup := h.r.RouterGroup.Group("/auth")
+func (h *HttpAuthHandler) RegisterRoutes(router *gin.Engine) {
+	authGroup := router.Group("/auth")
 	{
 		authGroup.GET("/authorize", h.Authorize)
 		authGroup.POST("/token", h.Token)

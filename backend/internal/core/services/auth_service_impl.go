@@ -361,36 +361,11 @@ func (s *authServiceImpl) handleTokenAuthorizationCode(
 		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Invalid authorization code.")
 	}
 
-	s.txManager.Begin(ctx)
-
-	// ใช้ defer สำหรับการ Rollback อัตโนมัติเมื่อเกิด panic หรือ error ก่อนที่จะ Commit
-	defer func() {
-		if r := recover(); r != nil {
-			// ✨ ถ้าเกิด panic กลางคัน โค้ดจะกระโดดมาทำตรงนี้ชัวร์ๆ!
-			s.txManager.Rollback(ctx)
-			panic(r) // พ่น panic ต่อเพื่อให้ระบบรู้ว่าแอปพัง
-		}
-		// เคสที่ 2: ฟังก์ชันนี้จบลงโดยการรีเทิร์น err != nil (ไม่ว่าจะพังจากจุดไหนในฟังก์ชัน)
-		if err != nil {
-			s.txManager.Rollback(ctx)
-		}
-	}()
-
-	if storedAuthCode.ExpiresAt.Before(dateUTCNow) || storedAuthCode.ExpiresAt.Equal(dateUTCNow) {
-		if err := s.repoAuthCode.Delete(ctx, storedAuthCode); err != nil {
-			return nil, err
-		}
-
-		if err := s.txManager.Commit(ctx); err != nil {
-			return nil, err
-		}
-
-		txErr := domain_exceptions.NewOAuthError("invalid_grant", "Authorization code expired.")
-		return nil, txErr
-	}
-
 	if storedAuthCode.ClientID.String() != clientId {
 		return nil, domain_exceptions.NewOAuthError("invalid_client", "Invalid client.")
+	}
+	if *storedAuthCode.RedirectURI != redirectUri {
+		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Invalid redirect uri.")
 	}
 
 	filterClient := &domain_entities.ClientFilter{
@@ -405,53 +380,69 @@ func (s *authServiceImpl) handleTokenAuthorizationCode(
 		if clientSecret == nil || strings.TrimSpace(*clientSecret) == "" {
 			return nil, domain_exceptions.NewOAuthError("invalid_client", "Client secret required.")
 		}
-		if client.HashSecret != clientSecret {
+		if client.HashSecret == nil || *client.HashSecret != *clientSecret {
 			return nil, domain_exceptions.NewOAuthError("invalid_client", "Invalid client secret.")
 		}
 	}
 
-	if client.RequirePCKE {
-		if strings.TrimSpace(codeVerifier) == "" {
-			return nil, domain_exceptions.NewOAuthError("invalid_request", "Code verifier required.")
-		}
+	if client.RequirePCKE && strings.TrimSpace(codeVerifier) == "" {
+		return nil, domain_exceptions.NewOAuthError("invalid_request", "Code verifier required.")
 	}
 
-	if storedAuthCode.RedirectURI != &redirectUri {
-		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Invalid redirect uri.")
-	}
-
-	if !s.pckeHasher.Validate(codeVerifier, storedAuthCode.CodeChallenge) {
-		if err := s.repoAuthCode.Delete(ctx, storedAuthCode); err != nil {
-			return nil, err
-		}
-		if err := s.txManager.Commit(ctx); err != nil {
-			return nil, err
-		}
-
-		txErr := domain_exceptions.NewOAuthError("invalid_grant", "Invalid PCKE")
-		return nil, txErr
-	}
-
-	requestedScopeNames := strings.Split(storedAuthCode.RequiredScopes, " ")
-	scopes, err := s.repoScope.GetAllByNames(ctx, requestedScopeNames)
+	txCtx, err := s.txManager.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var scopeIds []uuid.UUID
-	for _, x := range scopes {
-		scopeIds = append(scopeIds, x.ID)
+	// ใช้ defer สำหรับการ Rollback อัตโนมัติเมื่อเกิด panic หรือ error ก่อนที่จะ Commit
+	defer func() {
+		if r := recover(); r != nil {
+			// ✨ ถ้าเกิด panic กลางคัน โค้ดจะกระโดดมาทำตรงนี้ชัวร์ๆ!
+			s.txManager.Rollback(txCtx)
+			panic(r) // พ่น panic ต่อเพื่อให้ระบบรู้ว่าแอปพัง
+		}
+		// เคสที่ 2: ฟังก์ชันนี้จบลงโดยการรีเทิร์น err != nil (ไม่ว่าจะพังจากจุดไหนในฟังก์ชัน)
+		if err != nil {
+			s.txManager.Rollback(txCtx)
+		}
+	}()
+
+	if storedAuthCode.ExpiresAt.Before(dateUTCNow) || storedAuthCode.ExpiresAt.Equal(dateUTCNow) {
+		if err := s.repoAuthCode.Delete(txCtx, storedAuthCode); err != nil {
+			return nil, err
+		}
+
+		if err := s.txManager.Commit(txCtx); err != nil {
+			return nil, err
+		}
+
+		txErr := domain_exceptions.NewOAuthError("invalid_grant", "Authorization code expired.")
+		return nil, txErr
 	}
 
+	if !s.pckeHasher.Validate(codeVerifier, storedAuthCode.CodeChallenge) {
+		if err := s.repoAuthCode.Delete(txCtx, storedAuthCode); err != nil {
+			return nil, err
+		}
+		if err := s.txManager.Commit(txCtx); err != nil {
+			return nil, err
+		}
+		txErr := domain_exceptions.NewOAuthError("invalid_grant", "Invalid PCKE")
+		// เพื่อไม่ให้ defer จับ ได้ว่า err = nil (ไม่ต้องการ roll back)
+		err = nil
+		return nil, txErr
+	}
+
+	requestedScopeNames := strings.Split(storedAuthCode.RequiredScopes, " ")
 	accessTokenExpiry := dateUTCNow.Add(time.Duration(client.AccessTokenLifeTimeMinutes) * time.Minute)
 	refreshExpiry := dateUTCNow.Add(time.Duration(client.RefreshTokenLifeTimeMinutes) * time.Minute)
 
 	tokenResult, err := s.createTokenResult(
-		ctx,
+		txCtx,
 		storedAuthCode.UserID,
 		storedAuthCode.ClientID,
 		storedAuthCode.SessionID,
-		scopeIds,
+		requestedScopeNames,
 		storedAuthCode.Nonce,
 		dateUTCNow,
 		dateNow,
@@ -464,11 +455,11 @@ func (s *authServiceImpl) handleTokenAuthorizationCode(
 		return nil, err
 	}
 	//ลบทันที่ที่ใช้เสร็จแล้ว
-	if err := s.repoAuthCode.Delete(ctx, storedAuthCode); err != nil {
+	if err := s.repoAuthCode.Delete(txCtx, storedAuthCode); err != nil {
 		return nil, err
 	}
 
-	if err := s.txManager.Commit(ctx); err != nil {
+	if err := s.txManager.Commit(txCtx); err != nil {
 		return nil, err
 	}
 
@@ -496,6 +487,15 @@ func (s *authServiceImpl) handleTokenRefreshToken(
 	if storedRefreshToken.ClientID.String() != clientId {
 		return nil, domain_exceptions.NewOAuthError("invalid_client", "Invalid client id.")
 	}
+
+	if storedRefreshToken.IsRevoked {
+		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Invalid or revoked refresh token.")
+	}
+
+	if storedRefreshToken.ExpiresAt.Before(dateUTCNow) {
+		return nil, domain_exceptions.NewOAuthError("invalid_grant", "The refresh token has expired.")
+	}
+
 	filterClient := &domain_entities.ClientFilter{
 		ID: &storedRefreshToken.ClientID,
 	}
@@ -508,7 +508,7 @@ func (s *authServiceImpl) handleTokenRefreshToken(
 		if clientSecret == nil || strings.TrimSpace(*clientSecret) == "" {
 			return nil, domain_exceptions.NewOAuthError("invalid_client", "Client secret required.")
 		}
-		if client.HashSecret != clientSecret {
+		if client.HashSecret == nil || *client.HashSecret != *clientSecret {
 			return nil, domain_exceptions.NewOAuthError("invalid_client", "Invalid client secret.")
 		}
 	}
@@ -516,61 +516,58 @@ func (s *authServiceImpl) handleTokenRefreshToken(
 	absoluteRefreshExpiry := storedRefreshToken.InitialSignInDate.Add(time.Duration(client.RefreshTokenLifeTimeMinutes) * time.Minute)
 	slidingRefreshExpiry := dateUTCNow.Add(time.Duration(client.RefreshTokenLifeTimeMinutes) * time.Minute)
 
-	var refreshTokenExpiry time.Time
+	refreshTokenExpiry := slidingRefreshExpiry
 	if slidingRefreshExpiry.Before(absoluteRefreshExpiry) {
 		refreshTokenExpiry = slidingRefreshExpiry
-	} else {
-		refreshTokenExpiry = absoluteRefreshExpiry
-	}
-
-	if storedRefreshToken.IsRevoked {
-		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Invalid or revoked refresh token.")
-	}
-
-	if storedRefreshToken.ExpiresAt.Before(dateUTCNow) {
-		return nil, domain_exceptions.NewOAuthError("invalid_grant", "The refresh token has expired.")
 	}
 
 	if refreshTokenExpiry.Before(dateUTCNow) {
 		return nil, domain_exceptions.NewOAuthError("invalid_grant", "Session expired, Please sign in again.")
 	}
 
-	s.txManager.Begin(ctx)
+	// 4. เริ่ม Transaction ทำงานกับ DB
+	txCtx, err := s.txManager.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// ใช้ defer สำหรับการ Rollback อัตโนมัติเมื่อเกิด panic หรือ error ก่อนที่จะ Commit
 	defer func() {
 		if r := recover(); r != nil {
 			// ✨ ถ้าเกิด panic กลางคัน โค้ดจะกระโดดมาทำตรงนี้ชัวร์ๆ!
-			s.txManager.Rollback(ctx)
+			s.txManager.Rollback(txCtx)
 			panic(r) // พ่น panic ต่อเพื่อให้ระบบรู้ว่าแอปพัง
 		}
 		// เคสที่ 2: ฟังก์ชันนี้จบลงโดยการรีเทิร์น err != nil (ไม่ว่าจะพังจากจุดไหนในฟังก์ชัน)
 		if err != nil {
-			s.txManager.Rollback(ctx)
+			s.txManager.Rollback(txCtx)
 		}
 	}()
 
 	storedRefreshToken.IsRevoked = true
-	if err := s.repoRefreshToken.Update(ctx, storedRefreshToken); err != nil {
+	if err := s.repoRefreshToken.Update(txCtx, storedRefreshToken); err != nil {
 		return nil, err
 	}
 
-	viewScopes, err := s.repoViewRefreshTokenScope.GetAllByIDs(ctx, storedRefreshToken.ID)
+	filterRefreshTokenScope := &domain_entities.RefreshTokenScopeFilter{
+		TokenID: &storedRefreshToken.ID,
+	}
+	refreshScopes, err := s.repoRefreshTokenScope.GetAllWithMaster(ctx, filterRefreshTokenScope)
 	if err != nil {
 		return nil, err
 	}
 
-	var scopeIds []uuid.UUID
-	for _, x := range viewScopes {
-		scopeIds = append(scopeIds, x.ScopeID)
+	var scopeNames []string
+	for _, x := range refreshScopes {
+		scopeNames = append(scopeNames, x.Scope.Name)
 	}
 
 	tokenResult, err := s.createTokenResult(
-		ctx,
+		txCtx,
 		storedRefreshToken.UserID,
 		storedRefreshToken.ClientID,
 		storedRefreshToken.SessionID,
-		scopeIds,
+		scopeNames,
 		nil,
 		storedRefreshToken.InitialSignInDate,
 		storedRefreshToken.InitialSignInDateTH,
@@ -583,7 +580,7 @@ func (s *authServiceImpl) handleTokenRefreshToken(
 		return nil, err
 	}
 
-	if err := s.txManager.Commit(ctx); err != nil {
+	if err := s.txManager.Commit(txCtx); err != nil {
 		return nil, err
 	}
 
@@ -593,21 +590,17 @@ func (s *authServiceImpl) handleTokenRefreshToken(
 func (s *authServiceImpl) createTokenResult(
 	ctx context.Context,
 	userID, clientID, sessionID uuid.UUID,
-	scopeIds []uuid.UUID,
+	scopeNames []string,
 	nonce *string,
 	initialSignInDateUtc, initialSignInDateTh,
 	idTokenExpiryDateUTC, accessTokenExpiryDateUTC,
 	refreshTokenExpiryDateUTC time.Time,
 	issueRefreshToken bool,
 ) (*dto.TokenResult, error) {
-	scopes, err := s.getAllowedScopes(ctx, scopeIds)
+
+	scopes, err := s.repoScope.GetAllByNames(ctx, scopeNames)
 	if err != nil {
 		return nil, err
-	}
-
-	var scopeNames []string
-	for _, x := range scopes {
-		scopeNames = append(scopeNames, x.Name)
 	}
 
 	audiences, err := s.getAudienceNames(ctx, scopes)
@@ -615,9 +608,9 @@ func (s *authServiceImpl) createTokenResult(
 		return nil, err
 	}
 
-	var scopeStrIds []string
-	for _, id := range scopeIds {
-		scopeStrIds = append(scopeStrIds, id.String())
+	var scopeIds []uuid.UUID
+	for _, scope := range scopes {
+		scopeIds = append(scopeIds, scope.ID)
 	}
 
 	accessToken, err := s.jwtToken.CreateAccessToken(
@@ -625,7 +618,7 @@ func (s *authServiceImpl) createTokenResult(
 		userID.String(),
 		clientID.String(),
 		audiences,
-		scopeStrIds,
+		scopeNames,
 		accessTokenExpiryDateUTC,
 	)
 
@@ -635,7 +628,6 @@ func (s *authServiceImpl) createTokenResult(
 	}
 
 	var refreshToken string
-
 	hasOfflineAccess := false
 	for _, name := range scopeNames {
 		if name == "offline_access" {
@@ -645,22 +637,6 @@ func (s *authServiceImpl) createTokenResult(
 	}
 
 	if issueRefreshToken && hasOfflineAccess {
-
-		s.txManager.Begin(ctx)
-
-		// ใช้ defer สำหรับการ Rollback อัตโนมัติเมื่อเกิด panic หรือ error ก่อนที่จะ Commit
-		defer func() {
-			if r := recover(); r != nil {
-				// ✨ ถ้าเกิด panic กลางคัน โค้ดจะกระโดดมาทำตรงนี้ชัวร์ๆ!
-				s.txManager.Rollback(ctx)
-				panic(r) // พ่น panic ต่อเพื่อให้ระบบรู้ว่าแอปพัง
-			}
-			// เคสที่ 2: ฟังก์ชันนี้จบลงโดยการรีเทิร์น err != nil (ไม่ว่าจะพังจากจุดไหนในฟังก์ชัน)
-			if err != nil {
-				s.txManager.Rollback(ctx)
-			}
-		}()
-
 		refreshResult, err := s.issueRefreshToken(
 			userID,
 			clientID,
@@ -715,15 +691,6 @@ func (s *authServiceImpl) getUserInfo(ctx context.Context, userID uuid.UUID, sco
 		return nil, err
 	}
 	return userInfo, nil
-}
-
-func (s *authServiceImpl) getAllowedScopes(ctx context.Context, scopeIds []uuid.UUID) ([]*domain_entities.Scope, error) {
-	var allowedScopes []*domain_entities.Scope
-	allowedScopes, err := s.repoScope.GetAllByIDs(ctx, scopeIds)
-	if err != nil {
-		return allowedScopes, err
-	}
-	return allowedScopes, nil
 }
 
 func (s *authServiceImpl) getAudienceNames(ctx context.Context, scopes []*domain_entities.Scope) ([]string, error) {
