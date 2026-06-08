@@ -110,6 +110,7 @@ func main() {
 		authSessionRepository,
 		clientRepository,
 		userMfaRepository,
+		cachRepository,
 		totpService,
 		jwtTokenService,
 		randomNumberGenerator,
@@ -132,7 +133,6 @@ func main() {
 	mfaHandler := adapters_http_handlers.NewHttpMfaHandler(
 		r,
 		mfaService,
-		cachRepository,
 		authMiddleware,
 		authConfig.GetAuthSessionName(),
 		authConfig.GetAuthSessionExpiryInMinutes(),

@@ -4,7 +4,6 @@ import (
 	"OIDCAuthenticator/internal/adapters/middleware"
 	domain_exceptions "OIDCAuthenticator/internal/core/domain/exceptions"
 	"OIDCAuthenticator/internal/core/dto"
-	ports_caching "OIDCAuthenticator/internal/core/ports/caching"
 	"OIDCAuthenticator/internal/core/services"
 	"errors"
 	"fmt"
@@ -18,7 +17,6 @@ import (
 type HttpMfaHandler struct {
 	r               *gin.Engine
 	service         services.MfaService
-	cacheRepo       ports_caching.CacheRepository
 	authMiddleware  *middleware.AuthMiddleware
 	cookieName      string
 	cookieExpiryMin int
@@ -28,7 +26,6 @@ type HttpMfaHandler struct {
 func NewHttpMfaHandler(
 	r *gin.Engine,
 	service services.MfaService,
-	cacheRepo ports_caching.CacheRepository,
 	authMiddleware *middleware.AuthMiddleware, // 🚀 ฉีด Middleware ที่คุณสร้างเข้ามาร่วมงานด้วย
 	cookieName string,
 	cookieExpiryMin int,
@@ -36,7 +33,6 @@ func NewHttpMfaHandler(
 	return &HttpMfaHandler{
 		r:               r,
 		service:         service,
-		cacheRepo:       cacheRepo,
 		authMiddleware:  authMiddleware,
 		cookieName:      cookieName,
 		cookieExpiryMin: cookieExpiryMin,
