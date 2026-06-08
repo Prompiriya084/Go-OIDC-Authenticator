@@ -133,7 +133,7 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 	isConfirmationMode bool,
 ) (string, error) {
 
-	// 1. เปิดสวิตช์เริ่มระบบ Transaction 🚨
+	// 1. เปิดสวิตช์เริ่มระบบ Transaction
 	txCtx, err := s.txManager.Begin(ctx)
 	if err != nil {
 		return "", err
@@ -157,7 +157,7 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 		return "", funcErr
 	}
 	if userMfa == nil {
-		funcErr = errors.New("unauthorized: the account not found")
+		funcErr = domain_exceptions.NewOAuthError("unauthorized", "The account not found")
 		return "", funcErr
 	}
 
