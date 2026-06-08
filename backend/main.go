@@ -7,22 +7,37 @@ import (
 	adapters_crypto "OIDCAuthenticator/internal/adapters/crypto"
 	"OIDCAuthenticator/internal/adapters/dataaccess"
 	adapters_http_handlers "OIDCAuthenticator/internal/adapters/http"
+	"OIDCAuthenticator/internal/adapters/middleware"
 	adapters_repositories "OIDCAuthenticator/internal/adapters/repositories"
 	adapters_security "OIDCAuthenticator/internal/adapters/security"
 	"OIDCAuthenticator/internal/core/services"
+	"context"
+	"log"
 	"os"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	ctx := context.Background()
 	db := dataaccess.InitDB()
+
 	r := gin.Default()
 	txManager := dataaccess.NewTransactionManager(db)
 
 	authConfig := adapters_configurations.NewAuthConfiguration()
+
+	redisClient, err := dataaccess.InitRedis(ctx, "localhost:6379", "")
+	if err != nil {
+		log.Fatalf("Fatal Redis connection: %v", err)
+	}
+
+	// 👈 ย้าย defer มาไว้ตรงนี้แทน! มันจะปิดตัวก็ต่อเมื่อฟังก์ชัน main() นี้จบลงเท่านั้น
+	defer redisClient.Close()
+	//Middleware
+	authMiddleware := middleware.NewAuthMiddleware(authConfig.GetJwtSecret())
 	//caching
-	cachRepository := adapters_caching.NewCacheRepository()
+	cachRepository := adapters_caching.NewCacheRepository(redisClient)
 	//db repositories
 	audienceRepository := adapters_repositories.NewAudienceRepository(db)
 	authCodeRepository := adapters_repositories.NewAuthCodeRepository(db)
@@ -114,9 +129,20 @@ func main() {
 		accountService,
 		authConfig,
 	)
+	mfaHandler := adapters_http_handlers.NewHttpMfaHandler(
+		r,
+		mfaService,
+		cachRepository,
+		authMiddleware,
+		authConfig.GetAuthSessionName(),
+		authConfig.GetAuthSessionExpiryInMinutes(),
+	)
 
 	//register routes
 	authHandler.RegisterRoutes()
 	accountHandler.RegisterRoutes()
+	mfaHandler.RegisterRoutes()
+
+	r.Run(":8080")
 
 }

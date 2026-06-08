@@ -104,9 +104,19 @@ func (s *authServiceImpl) Authorize(ctx context.Context, req dto.AuthorizeReques
 	if req.Scope == "" {
 		return nil, domain_exceptions.NewOAuthError("scope_required", "The scopes is null or empty.")
 	}
+	oidcFlowState := dto.OIDCFlowState{
+		ClientID:            req.ClientID,
+		RedirectURI:         req.RedirectURI,
+		ResponseType:        req.ResponseType,
+		CodeChallenge:       req.CodeChallenge,
+		CodeChallengeMethod: req.CodeChallengeMethod,
+		State:               req.State,
+		Scope:               req.Scope,
+		Nonce:               req.Nonce,
+	}
 
 	// บันทึกลง Cache (ผ่าน Port Interface)
-	err := s.repoCache.Set(ctx, flowID, req, 15*time.Minute)
+	err := s.repoCache.Set(ctx, flowID, oidcFlowState, 15*time.Minute)
 	if err != nil {
 		return nil, err
 	}

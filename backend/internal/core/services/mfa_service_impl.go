@@ -3,7 +3,9 @@ package services
 import (
 	domain_entities "OIDCAuthenticator/internal/core/domain/entities"
 	domain_exceptions "OIDCAuthenticator/internal/core/domain/exceptions"
+	"OIDCAuthenticator/internal/core/dto"
 	ports_authentications "OIDCAuthenticator/internal/core/ports/authentications"
+	ports_caching "OIDCAuthenticator/internal/core/ports/caching"
 	ports_configurations "OIDCAuthenticator/internal/core/ports/configurations"
 	ports_crypto "OIDCAuthenticator/internal/core/ports/crypto"
 	ports_database "OIDCAuthenticator/internal/core/ports/database"
@@ -11,6 +13,7 @@ import (
 	ports_security "OIDCAuthenticator/internal/core/ports/security"
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +25,7 @@ type mfaServiceImpl struct {
 	repoAuthSession       ports_repositories.AuthSessionRepository
 	repoClient            ports_repositories.ClientRepository
 	repoUserMfa           ports_repositories.UserMfaRepository
+	repoCache             ports_caching.CacheRepository
 	totp                  ports_authentications.TotpService
 	crypto                ports_crypto.EncryptionService
 	jwt                   ports_authentications.JwtTokenService
@@ -36,6 +40,7 @@ func NewMfaService(
 	repoAuthSession ports_repositories.AuthSessionRepository,
 	repoClient ports_repositories.ClientRepository,
 	repoUserMfa ports_repositories.UserMfaRepository,
+	repoCache ports_caching.CacheRepository,
 	totp ports_authentications.TotpService,
 	jwt ports_authentications.JwtTokenService,
 	randomNumberGenerator ports_authentications.RandomNumberGenerator,
@@ -48,6 +53,7 @@ func NewMfaService(
 		repoAuthSession:       repoAuthSession,
 		repoClient:            repoClient,
 		repoUserMfa:           repoUserMfa,
+		repoCache:             repoCache,
 		totp:                  totp,
 		crypto:                crypto,
 		jwt:                   jwt,
@@ -55,15 +61,29 @@ func NewMfaService(
 		hasher:                hasher,
 	}
 }
+func (s *mfaServiceImpl) GetOIDCFlowState(
+	ctx context.Context,
+	flowId string,
+) (*dto.OIDCFlowState, error) {
+	var oidcFlowState dto.OIDCFlowState
+	if err := s.repoCache.Get(ctx, flowId, &oidcFlowState); err != nil {
+		log.Printf("WARN: failed to get flow state from cache: %v", err)
+		return nil, err
+	}
 
-func (s *mfaServiceImpl) GetClientById(ctx context.Context, clientId uuid.UUID) (*domain_entities.Client, error) {
+	if err := s.repoCache.Delete(ctx, flowId); err != nil {
+		log.Printf("WARN: failed to delete flow state from cache: %v", err)
+	}
+	return &oidcFlowState, nil
+}
+func (s *mfaServiceImpl) GetDefaultURIByClientId(ctx context.Context, clientId uuid.UUID) (string, error) {
 	// ใน Go ไม่นิยมครอบ try-catch พร่ำเพรื่อ แต่จะเช็ก error ตรงๆ ขากลับจาก Repo
 	filter := &domain_entities.ClientFilter{ID: &clientId}
 	client, err := s.repoClient.Get(ctx, filter)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return client, nil
+	return client.DefaultRedirectURI, nil
 }
 
 func (s *mfaServiceImpl) StartSetup(ctx context.Context, userID uuid.UUID) (string, error) {
@@ -97,11 +117,11 @@ func (s *mfaServiceImpl) StartSetup(ctx context.Context, userID uuid.UUID) (stri
 	return s.totp.GenerateQrCodeUri(userID.String(), secret), nil
 }
 
-func (s *mfaServiceImpl) ConfirmTotp(ctx context.Context, userId uuid.UUID, code string) (uuid.UUID, error) {
+func (s *mfaServiceImpl) ConfirmTotp(ctx context.Context, userId uuid.UUID, code string) (string, error) {
 	return s.processTotpVerificationAsync(ctx, userId, code, true)
 }
 
-func (s *mfaServiceImpl) VerifyTotp(ctx context.Context, userId uuid.UUID, code string) (uuid.UUID, error) {
+func (s *mfaServiceImpl) VerifyTotp(ctx context.Context, userId uuid.UUID, code string) (string, error) {
 	return s.processTotpVerificationAsync(ctx, userId, code, false)
 }
 
@@ -111,7 +131,7 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 	userId uuid.UUID,
 	code string,
 	isConfirmationMode bool,
-) (uuid.UUID, error) {
+) (string, error) {
 
 	// 1. เปิดสวิตช์เริ่มระบบ Transaction 🚨
 	s.txManager.Begin(ctx)
@@ -132,23 +152,23 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 	filter := &domain_entities.UserMfaFilter{ID: &userId}
 	userMfa, funcErr := s.repoUserMfa.Get(ctx, filter)
 	if funcErr != nil {
-		return uuid.Nil, funcErr
+		return "", funcErr
 	}
 	if userMfa == nil {
 		funcErr = errors.New("unauthorized: the account not found")
-		return uuid.Nil, funcErr
+		return "", funcErr
 	}
 
 	// 🟢 [STEP 2] แกะรหัสลับและตรวจสอบรหัสสุ่ม TOTP 6 หลัก
 	secret, funcErr := s.crypto.Decrypt(userMfa.TotpSecretEncrypted)
 	if funcErr != nil {
-		return uuid.Nil, funcErr
+		return "", funcErr
 	}
 
 	if !s.totp.Verify(secret, code) {
 		// พ่น OAuth Error รูปแบบเดียวกับ C# (สร้าง Custom Error Type เองในเลเยอร์โดเมนได้)
 		txErr := domain_exceptions.NewOAuthError("invalid_verification_code", "Invalid verification code, Please try again.")
-		return uuid.Nil, txErr
+		return "", txErr
 	}
 
 	// 🟢 [STEP 3] ล้างเซสชันเก่าทิ้งในโหมดปกติ (Verify Mode)
@@ -157,14 +177,14 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 		oldSessions, err := s.repoAuthSession.GetAll(ctx, sessionFilter)
 		if err != nil {
 			funcErr = err
-			return uuid.Nil, funcErr
+			return "", funcErr
 		}
 
 		// ใช้ความสามารถเลน len เช็กค่าแบบสไตล์ Go ที่เราสรุปกันไปรอบก่อน 🚀
 		if len(oldSessions) > 0 {
 			if err := s.repoAuthSession.DeleteRange(ctx, oldSessions); err != nil {
 				funcErr = err
-				return uuid.Nil, funcErr
+				return "", funcErr
 			}
 		}
 	}
@@ -201,18 +221,18 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 
 	// 🟢 [STEP 6] สั่งบันทึกผ่าน Unit of Work ค้างเอาไว้ในขวดโหลชั่วคราว
 	if err := s.repoUserMfa.Update(ctx, userMfa); err != nil {
-		return uuid.Nil, err
+		return "", err
 	}
 
 	if err := s.repoAuthSession.Add(ctx, newAuth); err != nil {
-		return uuid.Nil, err
+		return "", err
 	}
 
 	// 🚀 [FINAL STEP] ผ่านฉลุยทุกด่าน สั่งจารึกข้อตกลงลงดิสก์จริงพร้อมกันทีเดียว!
 	if err := s.txManager.Commit(ctx); err != nil {
 		funcErr = err
-		return uuid.Nil, funcErr
+		return "", funcErr
 	}
 
-	return sessionId, nil
+	return sessionId.String(), nil
 }

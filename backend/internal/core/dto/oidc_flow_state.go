@@ -1,6 +1,6 @@
 package dto
 
-type AuthorizeRequestDTO struct {
+type OIDCFlowState struct {
 	ClientID            string `json:"client_id"`
 	RedirectURI         string `json:"redirect_uri"`
 	ResponseType        string `json:"response_type"`
