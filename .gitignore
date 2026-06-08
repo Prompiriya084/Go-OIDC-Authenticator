@@ -30,6 +30,41 @@ backend/*.prof
 backend/.env
 backend/.env.local
 
+# ==========================================
+# FRONTEND (Next.js) CONFIGURATION
+# ==========================================
+
+# dependencies
+frontend/node_modules
+frontend/.pnp
+frontend/.pnp.js
+
+# testing
+frontend/coverage
+
+# next.js build and production
+frontend/.next/
+frontend/out/
+frontend/build
+
+# debug logs
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/.pnpm-debug.log*
+
+# local env files (Secret Keys)
+frontend/*.env.local
+frontend/*.env.development.local
+frontend/*.env.test.local
+frontend/*.env.production.local
+
+# hosting & typescript
+frontend/.vercel
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+
 
 # ==============================================================================
 # SYSTEM & MISC
