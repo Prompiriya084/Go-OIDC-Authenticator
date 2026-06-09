@@ -1,0 +1,11 @@
+export class ApiError extends Error {
+  constructor(
+    public type: string,
+    message: string,
+    public statusCode?: number,
+    public errorCode?: string,
+    public metadata?: any
+  ) {
+    super(message);
+  }
+}
