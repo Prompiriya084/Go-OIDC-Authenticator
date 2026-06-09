@@ -14,15 +14,15 @@ import (
 )
 
 func InitDB() *gorm.DB {
-	err := godotenv.Load("../../../.env")
+	err := godotenv.Load("../../../../.env")
 	if err != nil {
 		log.Fatalf("Error loading .env file: %v", err)
 	}
-	host := os.Getenv("DB_Host")
-	port, _ := strconv.Atoi(os.Getenv("DB_Port"))
-	dbName := os.Getenv("DB_Name")
-	username := os.Getenv("DB_Username")
-	password := os.Getenv("DB_Password")
+	host := os.Getenv("DB_HOST")
+	port, _ := strconv.Atoi(os.Getenv("DB_PORT"))
+	dbName := os.Getenv("DB_NAME")
+	username := os.Getenv("DB_USERNAME")
+	password := os.Getenv("DB_PASSWORD")
 
 	dsn := fmt.Sprintf("host=%s port=%d user=%s "+
 		"password=%s dbname=%s sslmode=disable",

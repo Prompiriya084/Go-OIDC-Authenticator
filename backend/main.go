@@ -27,7 +27,7 @@ func main() {
 
 	authConfig := adapters_configurations.NewAuthConfiguration()
 
-	redisClient, err := dataaccess.InitRedis(ctx, "localhost:6379", "")
+	redisClient, err := dataaccess.InitRedis(ctx)
 	if err != nil {
 		log.Fatalf("Fatal Redis connection: %v", err)
 	}

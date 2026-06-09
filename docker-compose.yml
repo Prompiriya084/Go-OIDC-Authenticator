@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  # --- Database: PostgreSQL ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # --- Cache: Redis ---
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    # เปิดใช้งานการเซฟข้อมูลลงดิสก์ (AOF) กันข้อมูลหายตอนดับ
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+
+volumes:
+  postgres_data:
+  redis_data:
