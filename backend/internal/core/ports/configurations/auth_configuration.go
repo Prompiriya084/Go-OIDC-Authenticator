@@ -7,7 +7,7 @@ type AuthConfiguration interface {
 	GetMfaSessionName() string
 	GetMfaSessionExpiryInMinutes() int
 	GetAuthSessionName() string
-	GetAuthSessionExpiryInMinutes() int
+	GetAuthSessionExpiryInSeconds() int
 	GetAuthCodeExpiryInMinutes() int
 	GetTotpEncryptionKey() string
 	GetTokenExpiryInMinutes() int

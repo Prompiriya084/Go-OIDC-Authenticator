@@ -6,6 +6,7 @@ export interface HttpPort {
 }
 export interface RequestConfig {
 //   method: "GET" | "POST" | "PUT" | "DELETE";
+  headers?: Record<string, string>
   url: string;
   body?: any;
   params?: any;

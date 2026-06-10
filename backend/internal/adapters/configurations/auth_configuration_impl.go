@@ -16,7 +16,7 @@ type authConfigurationImpl struct {
 	MfaSessionName               string
 	MfaSessionExpiryInMinutes    int
 	AuthSessionName              string
-	AuthSessionExpiryInMinutes   int
+	AuthSessionExpiryInSeconds   int
 	AuthCodeExpiryInMinutes      int
 	TokenExpiryInMinutes         int
 	TotpEncryptionKey            string
@@ -30,7 +30,7 @@ func NewAuthConfiguration() ports_configurations.AuthConfiguration {
 	}
 	preMfaSessionExpiryInMinutes, _ := strconv.Atoi(os.Getenv("Auth_pre_mfa_session_expiry_minutes"))
 	mfaSessionExpiryInMinutes, _ := strconv.Atoi(os.Getenv("Auth_mfa_session_expiry_minutes"))
-	authSessionExpiryInMinutes, _ := strconv.Atoi(os.Getenv("Auth_auth_session_expiry_minutes"))
+	AuthSessionExpiryInSeconds, _ := strconv.Atoi(os.Getenv("Auth_auth_session_expiry_seconds"))
 	authCodeExpiryInMinutes, _ := strconv.Atoi(os.Getenv("Auth_auth_code_expiry_minutes"))
 	tokenExpiryInMinutes, _ := strconv.Atoi(os.Getenv("Auth_auth_token_expiry_minutes"))
 	return &authConfigurationImpl{
@@ -40,7 +40,7 @@ func NewAuthConfiguration() ports_configurations.AuthConfiguration {
 		MfaSessionName:               os.Getenv("Auth_mfa_session_name"),
 		MfaSessionExpiryInMinutes:    mfaSessionExpiryInMinutes,
 		AuthSessionName:              os.Getenv("Auth_auth_session_name"),
-		AuthSessionExpiryInMinutes:   authSessionExpiryInMinutes,
+		AuthSessionExpiryInSeconds:   AuthSessionExpiryInSeconds,
 		AuthCodeExpiryInMinutes:      authCodeExpiryInMinutes,
 		TokenExpiryInMinutes:         tokenExpiryInMinutes,
 		TotpEncryptionKey:            os.Getenv("TOTP_EncryptionKey"),
@@ -66,8 +66,8 @@ func (c *authConfigurationImpl) GetMfaSessionExpiryInMinutes() int {
 func (c *authConfigurationImpl) GetAuthSessionName() string {
 	return c.AuthSessionName
 }
-func (c *authConfigurationImpl) GetAuthSessionExpiryInMinutes() int {
-	return c.AuthSessionExpiryInMinutes
+func (c *authConfigurationImpl) GetAuthSessionExpiryInSeconds() int {
+	return c.AuthSessionExpiryInSeconds
 }
 func (c *authConfigurationImpl) GetAuthCodeExpiryInMinutes() int {
 	return c.AuthCodeExpiryInMinutes

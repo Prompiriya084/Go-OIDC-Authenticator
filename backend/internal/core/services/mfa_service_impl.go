@@ -117,11 +117,11 @@ func (s *mfaServiceImpl) StartSetup(ctx context.Context, userID uuid.UUID) (stri
 	return s.totp.GenerateQrCodeUri(userID.String(), secret), nil
 }
 
-func (s *mfaServiceImpl) ConfirmTotp(ctx context.Context, userId uuid.UUID, code string) (string, error) {
+func (s *mfaServiceImpl) ConfirmTotp(ctx context.Context, userId uuid.UUID, code string) (*dto.MfaResponseDTO, error) {
 	return s.processTotpVerificationAsync(ctx, userId, code, true)
 }
 
-func (s *mfaServiceImpl) VerifyTotp(ctx context.Context, userId uuid.UUID, code string) (string, error) {
+func (s *mfaServiceImpl) VerifyTotp(ctx context.Context, userId uuid.UUID, code string) (*dto.MfaResponseDTO, error) {
 	return s.processTotpVerificationAsync(ctx, userId, code, false)
 }
 
@@ -131,12 +131,12 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 	userId uuid.UUID,
 	code string,
 	isConfirmationMode bool,
-) (string, error) {
+) (*dto.MfaResponseDTO, error) {
 
 	// 1. เปิดสวิตช์เริ่มระบบ Transaction
 	txCtx, err := s.txManager.Begin(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	// 2. ใช้ไม้ตาย "defer" คุมพฤติกรรมกู้ชีพและ Rollback ทันทีที่ฟังก์ชันเกิดพังหรือหลุดกลางคัน
 	var funcErr error
@@ -154,23 +154,23 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 	filter := &domain_entities.UserMfaFilter{ID: &userId}
 	userMfa, funcErr := s.repoUserMfa.Get(txCtx, filter)
 	if funcErr != nil {
-		return "", funcErr
+		return nil, funcErr
 	}
 	if userMfa == nil {
 		funcErr = domain_exceptions.NewOAuthError("unauthorized", "The account not found")
-		return "", funcErr
+		return nil, funcErr
 	}
 
 	// 🟢 [STEP 2] แกะรหัสลับและตรวจสอบรหัสสุ่ม TOTP 6 หลัก
 	secret, funcErr := s.crypto.Decrypt(userMfa.TotpSecretEncrypted)
 	if funcErr != nil {
-		return "", funcErr
+		return nil, funcErr
 	}
 
 	if !s.totp.Verify(secret, code) {
 		// พ่น OAuth Error รูปแบบเดียวกับ C# (สร้าง Custom Error Type เองในเลเยอร์โดเมนได้)
 		txErr := domain_exceptions.NewOAuthError("invalid_verification_code", "Invalid verification code, Please try again.")
-		return "", txErr
+		return nil, txErr
 	}
 
 	// 🟢 [STEP 3] ล้างเซสชันเก่าทิ้งในโหมดปกติ (Verify Mode)
@@ -179,14 +179,14 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 		oldSessions, err := s.repoAuthSession.GetAll(txCtx, sessionFilter)
 		if err != nil {
 			funcErr = err
-			return "", funcErr
+			return nil, funcErr
 		}
 
 		// ใช้ความสามารถเลน len เช็กค่าแบบสไตล์ Go ที่เราสรุปกันไปรอบก่อน 🚀
 		if len(oldSessions) > 0 {
 			if err := s.repoAuthSession.DeleteRange(txCtx, oldSessions); err != nil {
 				funcErr = err
-				return "", funcErr
+				return nil, funcErr
 			}
 		}
 	}
@@ -197,15 +197,15 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 	dateUtcNow := time.Now().UTC()
 	sessionId := uuid.New() // เทียบเท่า Guid.NewGuid()
 
-	expiryMinutes := time.Duration(s.authConfig.GetAuthSessionExpiryInMinutes()) * time.Minute
+	expiryDuration := time.Duration(s.authConfig.GetAuthSessionExpiryInSeconds()) * time.Second
 
 	// 🟢 [STEP 4] ประกอบร่างเซสชันใหม่
 	newAuth := &domain_entities.AuthSession{
 		SessionID:   sessionId,
 		UserID:      userId,
-		ExpiresAt:   dateUtcNow.Add(expiryMinutes),
+		ExpiresAt:   dateUtcNow.Add(expiryDuration),
 		CreatedAt:   dateUtcNow,
-		ExpiresAtTH: dateNow.Add(expiryMinutes),
+		ExpiresAtTH: dateNow.Add(expiryDuration),
 		CreatedAtTH: dateNow,
 	}
 
@@ -223,18 +223,22 @@ func (s *mfaServiceImpl) processTotpVerificationAsync(
 
 	// 🟢 [STEP 6] สั่งบันทึกผ่าน Unit of Work ค้างเอาไว้ในขวดโหลชั่วคราว
 	if err := s.repoUserMfa.Update(txCtx, userMfa); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if err := s.repoAuthSession.Add(txCtx, newAuth); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// 🚀 [FINAL STEP] ผ่านฉลุยทุกด่าน สั่งจารึกข้อตกลงลงดิสก์จริงพร้อมกันทีเดียว!
 	if err := s.txManager.Commit(txCtx); err != nil {
 		funcErr = err
-		return "", funcErr
+		return nil, funcErr
 	}
 
-	return sessionId.String(), nil
+	return &dto.MfaResponseDTO{
+		SessionId:            sessionId.String(),
+		SessionName:          s.authConfig.GetAuthSessionName(),
+		SessionExpirySeconds: s.authConfig.GetAuthSessionExpiryInSeconds(),
+	}, nil
 }

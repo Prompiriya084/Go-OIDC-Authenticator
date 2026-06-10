@@ -1,4 +1,4 @@
 export interface SigninRequestDTO{
-    usernmae: string;
+    username: string;
     password: string;
 }

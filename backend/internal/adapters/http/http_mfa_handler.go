@@ -15,24 +15,18 @@ import (
 )
 
 type HttpMfaHandler struct {
-	service         services.MfaService
-	authMiddleware  *middleware.AuthMiddleware
-	cookieName      string
-	cookieExpiryMin int
+	service        services.MfaService
+	authMiddleware *middleware.AuthMiddleware
 }
 
 // อัปเดต Constructor ให้รับตัวแปรน้อยลง เพราะตัดเรื่องชื่อคุกกี้ MFA ชั่วคราวออกไปแล้ว (เปลี่ยนไปใช้ JWT)
 func NewHttpMfaHandler(
 	service services.MfaService,
 	authMiddleware *middleware.AuthMiddleware, // 🚀 ฉีด Middleware ที่คุณสร้างเข้ามาร่วมงานด้วย
-	cookieName string,
-	cookieExpiryMin int,
 ) *HttpMfaHandler {
 	return &HttpMfaHandler{
-		service:         service,
-		authMiddleware:  authMiddleware,
-		cookieName:      cookieName,
-		cookieExpiryMin: cookieExpiryMin,
+		service:        service,
+		authMiddleware: authMiddleware,
 	}
 
 }
@@ -112,14 +106,14 @@ func (h *HttpMfaHandler) ConfirmTotp(c *gin.Context) {
 	}
 
 	// ตรวจสอบความถูกต้องของ OTP
-	sessionId, err := h.service.ConfirmTotp(c.Request.Context(), uuidUserID, req.Code)
+	result, err := h.service.ConfirmTotp(c.Request.Context(), uuidUserID, req.Code)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
-	// 1. ผูกคุกกี้ชิ้นใหญ่ลงเครื่องลูกค้าเสร็จสรรพ
-	h.setAuthCookie(c, sessionId)
+	// // 1. ผูกคุกกี้ชิ้นใหญ่ลงเครื่องลูกค้าเสร็จสรรพ
+	// h.setAuthCookie(c, sessionId)
 
 	// 🔥 (ข้อควรจำ) บรรทัด SignOutAsync ของคุกกี้ชั่วคราวตัดทิ้งได้เลยครับ!
 	// ปล่อยให้หน้าที่เคลียร์สิทธิ์ของสายชั่วคราวเป็นเรื่องของหน้าบ้าน (Frontend) ไปล้างทิ้งแทน
@@ -129,7 +123,7 @@ func (h *HttpMfaHandler) ConfirmTotp(c *gin.Context) {
 	if err != nil {
 		uuidClientID, _ := uuid.Parse(clientId)
 		defaultRedirectURI, _ := h.service.GetDefaultURIByClientId(c.Request.Context(), uuidClientID)
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(http.StatusGone, gin.H{
 			"error":             "session_expired",
 			"error_description": "Session expired, Please sign in again.",
 			"redirectUrl":       defaultRedirectURI,
@@ -137,11 +131,14 @@ func (h *HttpMfaHandler) ConfirmTotp(c *gin.Context) {
 		return
 	}
 
-	redirectPath := h.buildAuthorizeUrl(c, oidcFlowState)
+	redirectUrl := h.buildAuthorizeUrl(c, oidcFlowState)
 
 	c.JSON(http.StatusOK, gin.H{
-		"isVerified":   true,
-		"redirectPath": redirectPath,
+		"isVerified":             true,
+		"ssoToken":               result.SessionId,
+		"redirectUrl":            redirectUrl,
+		"sessionName":            result.SessionName,
+		"sessionExpiryInSeconds": result.SessionExpirySeconds,
 	})
 }
 func (h *HttpMfaHandler) VerifyTotp(c *gin.Context) {
@@ -182,31 +179,38 @@ func (h *HttpMfaHandler) VerifyTotp(c *gin.Context) {
 	}
 
 	// 2. ตรวจสอบโค้ด Totp
-	sessionId, err := h.service.VerifyTotp(c.Request.Context(), uuidUserID, req.Code)
+	result, err := h.service.VerifyTotp(c.Request.Context(), uuidUserID, req.Code)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
 	// 3. ฝังคุกกี้เซสชันตัวเต็มลงเบราว์เซอร์หน้าบ้าน
-	h.setAuthCookie(c, sessionId)
+	// h.setAuthCookie(c, result.SessionId)
 
-	var redirectPath string
 	// 4. ค้นหา State จาก Cache
 	oidcFlowState, err := h.service.GetOIDCFlowState(c.Request.Context(), flowId)
 	if err != nil {
 		uuidClientID, _ := uuid.Parse(clientId)
 		defaultRedirectURI, _ := h.service.GetDefaultURIByClientId(c.Request.Context(), uuidClientID)
-		redirectPath = defaultRedirectURI
-	} else {
-		redirectPath = h.buildAuthorizeUrl(c, oidcFlowState)
+		c.JSON(http.StatusGone, gin.H{
+			"error":             "session_expired",
+			"error_description": "Session expired, Please sign in again.",
+			"redirectUrl":       defaultRedirectURI,
+		})
+		return
 	}
+
+	redirectUrl := h.buildAuthorizeUrl(c, oidcFlowState)
 
 	// 🔥 5. ตัดคำสั่ง h.clearCookie(c, h.mfaCookieName) ออกไปเลยครับ!
 	// เพราะเราย้ายมาใช้ JWT Bearer ตัว Token จะหมดค่าไปเองเมื่อหน้าบ้านลบทิ้ง
 	c.JSON(http.StatusOK, gin.H{
-		"isVerified":   true,
-		"redirectPath": redirectPath,
+		"isVerified":             true,
+		"ssoToken":               result.SessionId,
+		"redirectUrl":            redirectUrl,
+		"sessionName":            result.SessionName,
+		"sessionExpiryInSeconds": result.SessionExpirySeconds,
 	})
 }
 func (h *HttpMfaHandler) buildAuthorizeUrl(c *gin.Context, state *dto.OIDCFlowState) string {
@@ -231,17 +235,17 @@ func (h *HttpMfaHandler) buildAuthorizeUrl(c *gin.Context, state *dto.OIDCFlowSt
 	return fmt.Sprintf("%s?%s", baseURL, params.Encode())
 }
 
-func (h *HttpMfaHandler) setAuthCookie(c *gin.Context, sessionId string) {
-	// คำนวณเวลาหมดอายุเป็นหน่วยวินาทีสำหรับ Go Cookie
-	maxAge := h.cookieExpiryMin * 60
+// func (h *HttpMfaHandler) setAuthCookie(c *gin.Context, sessionId string) {
+// 	// คำนวณเวลาหมดอายุเป็นหน่วยวินาทีสำหรับ Go Cookie
+// 	maxAge := h.cookieExpiryMin * 60
 
-	// c.SetCookie(name, value, maxAge, path, domain, secure, httpOnly)
-	// หมายเหตุ: Gin ไม่มีตัวเลือก SameSite สดๆ ในฟังก์ชันนี้ ต้องใช้ฟังก์ชันย่อยด้านล่างช่วยเซ็ต
-	c.SetCookie(h.cookieName, sessionId, maxAge, "/", "", true, true)
+// 	// c.SetCookie(name, value, maxAge, path, domain, secure, httpOnly)
+// 	// หมายเหตุ: Gin ไม่มีตัวเลือก SameSite สดๆ ในฟังก์ชันนี้ ต้องใช้ฟังก์ชันย่อยด้านล่างช่วยเซ็ต
+// 	c.SetCookie(h.cookieName, sessionId, maxAge, "/", "", true, true)
 
-	// บังคับให้เป็น SameSite Mode Lax แบบที่คุณเขียนใน .NET
-	c.SetSameSite(http.SameSiteLaxMode)
-}
+//		// บังคับให้เป็น SameSite Mode Lax แบบที่คุณเขียนใน .NET
+//		c.SetSameSite(http.SameSiteLaxMode)
+//	}
 func (h *HttpMfaHandler) getUserIdFromContext(c *gin.Context) (string, error) {
 	// ดึงข้อมูลไอดีที่ Middleware ถอดรหัสฝากไว้ในระบบ
 	val, exists := c.Get("userID")

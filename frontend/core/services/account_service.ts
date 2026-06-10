@@ -3,7 +3,7 @@ import { AccountApiRepositoryPort } from "../ports/repositories/account_api_repo
 import { ValidationError } from "../domain/exceptions/validation_error";
 import { SigninRequestDTO } from "../dtos/signin_request_dto";
 import { AuthQueryParameterDTO } from "../dtos/auth_query_parameter_dto";
-import { SignInResponseDTO } from "../dtos/signin_response_dto";
+import { SigninResponseDTO } from "../dtos/signin_response_dto";
 
 const SignInSchema = z.object({
   username: z.string().min(1, "Please input the employee code."),
@@ -19,7 +19,7 @@ export class AccountService {
     async handleSignInAction(
         queryParams: AuthQueryParameterDTO,
         data: SigninRequestDTO
-    ): Promise<SignInResponseDTO> {
+    ): Promise<SigninResponseDTO> {
         // 1.Validate input (Zod)
         const parsed = SignInSchema.safeParse(data)
         if (!parsed.success) {

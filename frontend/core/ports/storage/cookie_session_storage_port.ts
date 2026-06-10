@@ -1,5 +1,5 @@
 export interface CookieSessionStoragePort {
-    saveToken(token: string, maxAgeInSeconds: number): Promise<void>;
-    getToken(): Promise<string | undefined>;
-    clearSession(): Promise<void>;
+    save(key: string, value: string, maxAgeInSeconds: number): Promise<void>;
+    get(key: string): Promise<string | undefined>;
+    clearSession(key: string): Promise<void>;
 }
